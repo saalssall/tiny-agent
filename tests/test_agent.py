@@ -4,7 +4,9 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
+import anthropic
 from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock, BetaUsage
 
 from tiny_agent.agent import Agent, Conversation, UsageTracker
@@ -14,7 +16,7 @@ from tiny_agent.tools import ReadFileTool, ToolRegistry, WriteFileTool
 from tiny_agent.workspace import Workspace
 
 
-def message(*blocks, stop_reason="end_turn") -> BetaMessage:
+def message(*blocks: Any, stop_reason: Any = "end_turn") -> BetaMessage:
     """Build a realistic BetaMessage the way the SDK would."""
     return BetaMessage(
         id="msg_test",
@@ -32,16 +34,16 @@ def text(s: str) -> BetaTextBlock:
     return BetaTextBlock(type="text", text=s)
 
 
-def tool_use(name: str, args: dict, call_id: str = "toolu_1") -> BetaToolUseBlock:
+def tool_use(name: str, args: dict[str, Any], call_id: str = "toolu_1") -> BetaToolUseBlock:
     return BetaToolUseBlock(type="tool_use", id=call_id, name=name, input=args)
 
 
 class ScriptedAgent(Agent):
     """An Agent whose _request() returns pre-scripted responses instead of calling the API."""
 
-    def __init__(self, responses, **kwargs):
-        super().__init__(client=None, **kwargs)
-        self.responses = list(responses)
+    def __init__(self, responses: list[BetaMessage], **kwargs: Any):
+        super().__init__(client=cast("anthropic.Anthropic", None), **kwargs)
+        self.responses: list[BetaMessage] = list(responses)
         self.requests_made = 0
 
     def _request(self) -> BetaMessage:
@@ -61,9 +63,9 @@ class AgentLoopTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def make_agent(self, *responses) -> ScriptedAgent:
+    def make_agent(self, *responses: BetaMessage) -> ScriptedAgent:
         return ScriptedAgent(
-            responses, settings=self.settings, tools=self.tools, console=Console(self.out, color=False)
+            list(responses), settings=self.settings, tools=self.tools, console=Console(self.out, color=False)
         )
 
     def test_plain_answer_completes_in_one_round(self):
@@ -130,6 +132,21 @@ class AgentLoopTests(unittest.TestCase):
             agent.ask("x")
         self.assertEqual(agent.requests_made, Agent.MAX_JSON_RETRIES + 1)
 
+    def test_round_cap_stops_a_looping_model(self):
+        loop_forever = [
+            message(tool_use("read_file", {"path": "x"}, call_id=f"toolu_{i}"), stop_reason="tool_use")
+            for i in range(10)
+        ]
+        settings = Settings(workspace=self.settings.workspace, api_key="test", max_rounds=3)
+        agent = ScriptedAgent(
+            loop_forever, settings=settings, tools=self.tools, console=Console(self.out, color=False)
+        )
+        agent.ask("loop")
+        self.assertEqual(agent.requests_made, 3)
+        self.assertIn("stopped after 3 tool rounds", self.out.getvalue())
+        # History stays consistent: every tool_use has its tool_result.
+        self.assertEqual(agent.conversation.messages[-1]["role"], "user")
+
     def test_usage_is_accumulated(self):
         agent = self.make_agent(
             message(tool_use("read_file", {"path": "x"}), stop_reason="tool_use"), message(text("ok"))
@@ -156,7 +173,9 @@ class UsageTrackerTests(unittest.TestCase):
     def test_cost_for_known_and_unknown_models(self):
         tracker = UsageTracker()
         tracker.add(BetaUsage(input_tokens=1_000_000, output_tokens=0))
-        self.assertAlmostEqual(tracker.cost_usd("claude-opus-5"), 5.00)
+        cost = tracker.cost_usd("claude-opus-5")
+        assert cost is not None
+        self.assertAlmostEqual(cost, 5.00)
         self.assertIsNone(tracker.cost_usd("some-other-model"))
         self.assertEqual(tracker.rows("some-other-model")[-1], ("estimated cost", "unknown model"))
 

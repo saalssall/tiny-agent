@@ -9,21 +9,26 @@ on:
 permissions:
   contents: read
 
+env:
+  UV_LOCKED: "1"  # fail if uv.lock is out of date with pyproject.toml
+
 jobs:
-  lint:
-    name: Lint
+  quality:
+    name: Format, lint, types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
-      - name: Install ruff
-        run: pip install ruff
-      - name: Check formatting
-        run: ruff format --check .
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-groups
+      - name: Formatting
+        run: uv run ruff format --check .
       - name: Lint
-        run: ruff check .
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy
 
   test:
     name: Test (Python ${{ matrix.python-version }})
@@ -34,15 +39,27 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-ml.txt
-      - name: Byte-compile
-        run: python -m compileall -q tiny_agent main.py tests
-      - name: Run unit tests
-        run: python -m unittest -v
-      - name: Evaluate risk classifier
-        run: python ml/train.py --no-save
+          enable-cache: true
+      - run: uv python install ${{ matrix.python-version }}
+      - run: uv sync --all-groups --python ${{ matrix.python-version }}
+      - name: Unit tests with coverage
+        run: uv run coverage run -m pytest
+      - name: Coverage threshold
+        run: uv run coverage report
+      - name: Evaluate risk classifier on held-out templates
+        run: uv run python ml/train.py --no-save
+
+  package:
+    name: Build package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+      - name: Smoke-test the wheel
+        run: |
+          uv venv /tmp/smoke
+          uv pip install --python /tmp/smoke/bin/python dist/*.whl
+          /tmp/smoke/bin/tiny-agent --version

@@ -1,7 +1,7 @@
 name: Release
 
-# Pushing a tag like v0.1.0 runs the tests, then publishes a GitHub Release
-# with auto-generated notes and a source archive of the project.
+# Pushing a tag like v0.3.0 runs the checks, builds the package, and publishes a
+# GitHub Release with generated notes, the wheel, and the source distribution.
 on:
   push:
     tags: ["v*"]
@@ -9,28 +9,25 @@ on:
 permissions:
   contents: write
 
-jobs:
-  test:
-    name: Test before release
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -r requirements.txt -r requirements-ml.txt ruff
-      - run: ruff check .
-      - run: python -m unittest -v
+env:
+  UV_LOCKED: "1"
 
+jobs:
   release:
-    name: Publish GitHub Release
-    needs: test
+    name: Check, build, publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build source archive
-        run: git archive --format=zip --prefix=tiny-agent/ -o "tiny-agent-${GITHUB_REF_NAME}.zip" HEAD
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --all-groups
+      - run: uv run ruff check .
+      - run: uv run mypy
+      - run: uv run pytest
+      - run: uv build
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "tiny-agent-${GITHUB_REF_NAME}.zip" --generate-notes --title "tiny-agent $GITHUB_REF_NAME"
+        run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes --title "tiny-agent $GITHUB_REF_NAME"

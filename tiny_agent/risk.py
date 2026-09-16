@@ -25,7 +25,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 DEFAULT_MODEL_PATH = Path(__file__).with_name("risk_model.json")
 
@@ -155,6 +155,14 @@ def split_segments(command: str) -> list[str]:
     return [part for part in _SEPARATORS.split(command) if part]
 
 
+class Scorer(Protocol):
+    """Anything that can estimate how safe a single command segment is."""
+
+    threshold: float
+
+    def p_safe(self, command: str) -> float: ...
+
+
 class RiskModel:
     """Pure-Python inference for the exported TF-IDF + logistic-regression model.
 
@@ -231,7 +239,7 @@ class RiskModel:
 class CommandGate:
     """Combines the hard rules and the model into one verdict per command."""
 
-    def __init__(self, model: RiskModel | None):
+    def __init__(self, model: Scorer | None):
         self.model = model
 
     @property

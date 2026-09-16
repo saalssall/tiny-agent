@@ -1,7 +1,9 @@
 """Unit tests for the workspace and tools. Run with: python -m unittest"""
 
+import os
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 from tiny_agent.tools import (
@@ -11,6 +13,7 @@ from tiny_agent.tools import (
     RunCommandTool,
     ToolRegistry,
     WriteFileTool,
+    scrubbed_environment,
 )
 from tiny_agent.workspace import Workspace, WorkspaceError
 
@@ -123,6 +126,26 @@ class ToolTests(unittest.TestCase):
         r = self.registry.execute("run_command", {"command": "touch should_not_exist"})
         self.assertIn("declined", r.content)
         self.assertFalse((self.ws.root / "should_not_exist").exists())
+
+    def test_secret_like_variables_are_hidden_from_commands(self):
+        env = {
+            "PATH": "/usr/bin",
+            "HOME": "/home/u",
+            "ANTHROPIC_API_KEY": "sk-x",
+            "GH_TOKEN": "t",
+            "DB_PASSWORD": "p",
+            "aws_secret_access_key": "s",
+            "MY_CREDENTIALS_FILE": "f",
+        }
+        self.assertEqual(scrubbed_environment(env), {"PATH": "/usr/bin", "HOME": "/home/u"})
+
+        with unittest.mock.patch.dict(
+            os.environ, {"TINY_AGENT_TEST_TOKEN": "leak", "TINY_AGENT_PLAIN": "ok"}
+        ):
+            r = self.registry.execute(
+                "run_command", {"command": "echo [$TINY_AGENT_TEST_TOKEN] [$TINY_AGENT_PLAIN]"}
+            )
+        self.assertIn("[] [ok]", r.content)
 
     def test_schemas_are_well_formed(self):
         for schema in self.registry.schemas():

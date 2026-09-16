@@ -2,13 +2,24 @@
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
-from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
 from .workspace import Workspace, WorkspaceError
+
+# Environment variables that look like credentials are not passed to shell commands.
+SECRET_ENV = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL", re.IGNORECASE)
+
+
+def scrubbed_environment(environ: dict[str, str] | None = None) -> dict[str, str]:
+    """A copy of the environment without credential-looking variables."""
+    source = os.environ if environ is None else environ
+    return {name: value for name, value in source.items() if not SECRET_ENV.search(name)}
+
 
 # Map JSON-schema type names to the Python types we accept for them.
 _JSON_TYPES: dict[str, type | tuple[type, ...]] = {
@@ -25,14 +36,22 @@ class ToolResult:
     is_error: bool = False
 
 
-class Tool(ABC):
-    """Base class for a callable tool. Subclasses declare a schema and implement run()."""
+class Tool:
+    """Base class for a callable tool.
+
+    Subclasses declare the schema (name, description, parameters, required) and
+    implement ``run`` with explicit keyword parameters that match ``parameters``.
+    The registry validates inputs against the schema and calls ``invoke``.
+    """
 
     name: ClassVar[str]
     description: ClassVar[str]
     # property name -> {"type": ..., "description": ...}
     parameters: ClassVar[dict[str, dict[str, str]]]
     required: ClassVar[tuple[str, ...]] = ()
+
+    # Implemented by each concrete subclass with its own explicit signature.
+    run: Callable[..., str]
 
     def schema(self) -> dict[str, Any]:
         """The tool definition sent to the API."""
@@ -68,9 +87,9 @@ class Tool(ABC):
                 return f"field '{key}' should be {spec['type']}"
         return None
 
-    @abstractmethod
-    def run(self, **kwargs: Any) -> str:
-        """Execute the tool and return text for the model. Raise on failure."""
+    def invoke(self, args: dict[str, Any]) -> str:
+        """Run the tool with already-validated arguments."""
+        return self.run(**args)
 
 
 # --------------------------------------------------------------------------- #
@@ -153,7 +172,8 @@ class RunCommandTool(Tool):
     name = "run_command"
     description = (
         "Run a shell command in the workspace root and return stdout, stderr and the "
-        "exit code. The user must approve each command before it runs."
+        "exit code. The user must approve each command before it runs. "
+        "Credential-like environment variables are not available to the command."
     )
     parameters = {"command": {"type": "string", "description": "The shell command to run."}}
     required = ("command",)
@@ -172,6 +192,7 @@ class RunCommandTool(Tool):
                 command,
                 shell=True,
                 cwd=self.workspace.root,
+                env=scrubbed_environment(),
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
@@ -210,11 +231,11 @@ class ToolRegistry:
             return ToolResult(f"unknown tool '{name}'", is_error=True)
 
         problem = tool.validate(args)
-        if problem:
+        if problem or not isinstance(args, dict):
             return ToolResult(f"invalid input: {problem}", is_error=True)
 
         try:
-            output = tool.run(**args)  # type: ignore[arg-type]  (validated above)
+            output = tool.invoke(args)
         except WorkspaceError as exc:
             return ToolResult(str(exc), is_error=True)
         except Exception as exc:

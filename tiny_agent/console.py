@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import TextIO
 
 from .config import APP_NAME, Settings
@@ -13,10 +13,17 @@ from .config import APP_NAME, Settings
 class Console:
     """A thin, colour-aware wrapper around print() and input()."""
 
-    def __init__(self, out: TextIO = sys.stdout, color: bool | None = None):
-        self.out = out
+    def __init__(
+        self,
+        out: TextIO | None = None,
+        color: bool | None = None,
+        input_fn: Callable[[str], str] | None = None,
+    ):
+        """out defaults to the current stdout; input_fn is injectable so tests need no terminal."""
+        self.out = sys.stdout if out is None else out
+        self.input_fn = input if input_fn is None else input_fn
         if color is None:
-            color = out.isatty() and os.environ.get("NO_COLOR") is None
+            color = self.out.isatty() and os.environ.get("NO_COLOR") is None
         self.color = color
 
     # -- styling ----------------------------------------------------------
@@ -58,20 +65,20 @@ class Console:
         self.write(self.red(f"  {text}"))
 
     def table(self, rows: Iterable[tuple[str, str]]) -> None:
-        rows = list(rows)
-        width = max((len(label) for label, _ in rows), default=0)
-        for label, value in rows:
+        items = list(rows)
+        width = max((len(label) for label, _ in items), default=0)
+        for label, value in items:
             self.write(f"  {label.ljust(width)}  {value:>12}")
 
     # -- input ------------------------------------------------------------
 
     def ask(self, prompt: str) -> str:
         """Read a line from the user. EOFError / KeyboardInterrupt propagate."""
-        return input(self.bold(self.green(prompt))).strip()
+        return self.input_fn(self.bold(self.green(prompt))).strip()
 
     def confirm(self, question: str) -> bool:
         try:
-            answer = input(self.yellow(f"  {question} [y/N] ")).strip().lower()
+            answer = self.input_fn(self.yellow(f"  {question} [y/N] ")).strip().lower()
         except EOFError:
             return False
         return answer in ("y", "yes")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -156,13 +158,35 @@ def build_app(settings: Settings, console: Console) -> ChatApp:
     return ChatApp(settings, console, agent, gate_enabled=gate.enabled)
 
 
-def main(argv: list[str] | None = None, key_search_dir: Path | None = None) -> int:
+def configure_logging(verbose: bool) -> None:
+    """With --verbose, our own logger reports each request, stop reason and tool call on stderr.
+
+    Third-party loggers (the SDK, HTTP client) stay at WARNING either way; their DEBUG output
+    includes full request bodies and is rarely what a user wants.
+    """
+    logging.basicConfig(
+        level=logging.WARNING,
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    logging.getLogger("tiny_agent").setLevel(logging.DEBUG if verbose else logging.WARNING)
+
+
+def main(
+    argv: list[str] | None = None,
+    key_search_dir: Path | None = None,
+    console: Console | None = None,
+) -> int:
     """Program entry point. Returns the process exit code."""
-    console = Console()
+    from . import __version__  # imported here to avoid a circular import at module load
+
+    console = console or Console()
     try:
-        settings = parse_settings(argv, key_search_dir or Path.cwd())
+        settings = parse_settings(argv, key_search_dir or Path.cwd(), version=__version__)
     except ConfigError as exc:
         console.error(str(exc))
         return 1
+    configure_logging(settings.verbose)
     build_app(settings, console).run()
     return 0

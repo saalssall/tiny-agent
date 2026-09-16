@@ -5,28 +5,42 @@ write and edit files, and run shell commands, all confined to one workspace
 directory. Every shell command is shown to you and waits for a `y` before it
 runs.
 
-## Setup
+## Install
+
+The project uses [uv](https://docs.astral.sh/uv/). From a checkout:
 
 ```bash
-uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
-# or: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+uv sync                  # creates .venv and installs the app
+uv run tiny-agent        # run it
+```
+
+Or install the command globally without cloning into a venv:
+
+```bash
+uv tool install git+https://github.com/saalssall/tiny-agent
+tiny-agent --version
 ```
 
 Provide an API key either way:
 
 - `export ANTHROPIC_API_KEY=sk-ant-...`, or
-- put the raw key in a file called `API.KEY` next to `main.py` (git-ignored).
+- put the raw key in a file called `API.KEY` in the directory you launch from
+  (it is git-ignored in this repo).
 
 ## Run
 
 ```bash
-.venv/bin/python main.py                 # work in the current directory
-.venv/bin/python main.py ~/some/project  # work in another directory
-.venv/bin/python main.py --yolo          # run every shell command without asking
-.venv/bin/python main.py --always-ask    # ask for every command, ignore the classifier
-.venv/bin/python main.py --effort xhigh  # low | medium | high | xhigh | max
-.venv/bin/python main.py --model claude-sonnet-5
+tiny-agent                       # work in the current directory
+tiny-agent ~/some/project        # work in another directory
+tiny-agent --yolo                # run every shell command without asking
+tiny-agent --always-ask          # ask for every command, ignore the classifier
+tiny-agent --effort xhigh        # low | medium | high | xhigh | max
+tiny-agent --model claude-sonnet-5
+tiny-agent --verbose             # log requests, stop reasons and tool calls to stderr
 ```
+
+Prefix with `uv run` if you have not installed the tool globally. `python main.py`
+and `python -m tiny_agent` also work from a checkout.
 
 Inside the chat: `/help` lists commands, `/cost` shows tokens and estimated
 spend, `/clear` forgets the conversation, `/quit` exits.
@@ -34,8 +48,9 @@ spend, `/clear` forgets the conversation, `/quit` exits.
 ## Project layout
 
 ```
-main.py                 launcher
+main.py                 convenience launcher for a checkout
 tiny_agent/
+  __main__.py           `python -m tiny_agent`
   config.py             Settings dataclass, CLI arguments, API-key lookup, prices
   console.py            Console: all colours, prompts and printing
   workspace.py          Workspace: file access confined to one root directory
@@ -56,8 +71,13 @@ How a turn flows: `ChatApp` reads a line and calls `Agent.ask`. The agent
 streams a response, printing text as it arrives. If the model asked for tools,
 `ToolRegistry` validates each input against its schema, runs it, and the
 results go back to the model. This repeats until the model answers in plain
-text. If a request fails or you press Ctrl-C, the conversation rolls back to
-the last complete turn so the history never gets out of sync.
+text or the per-turn round cap (50) is reached. If a request fails or you press
+Ctrl-C, the conversation rolls back to the last complete turn so the history
+never gets out of sync.
+
+Shell commands run with credential-looking environment variables (`*KEY*`,
+`*TOKEN*`, `*SECRET*`, `*PASSWORD*`, ...) removed, so a command cannot read the
+API key even if it were approved.
 
 ## Command risk classifier
 
@@ -96,53 +116,43 @@ the model layer is skipped and every command asks.
   ones. Familiar everyday commands such as `git status` or `pytest` are in the
   training data and auto-approve with high confidence.
 
-To change the behaviour, edit the templates or the rules, then (scikit-learn
-is needed only for this step):
+To change the behaviour, edit the templates or the rules, then:
 
 ```bash
-uv pip install --python .venv/bin/python -r requirements-ml.txt
-.venv/bin/python ml/make_dataset.py
-.venv/bin/python ml/train.py
-.venv/bin/python -m unittest
+uv sync --group ml
+uv run python ml/make_dataset.py
+uv run python ml/train.py
+uv run pytest
 ```
 
-## Tests
+## Development
 
 ```bash
-.venv/bin/python -m unittest
+uv sync --all-groups            # app + dev tools + scikit-learn for retraining
+uv run ruff format .            # format
+uv run ruff check .             # lint
+uv run mypy                     # strict type check
+uv run coverage run -m pytest && uv run coverage report   # tests, 85% minimum
+uv run pre-commit install       # optional: run the checks on every commit
 ```
+
+CI runs the same commands on every push and pull request, tests on Python 3.10
+through 3.13, re-evaluates the risk classifier, and smoke-tests the built wheel.
+Dependencies are locked in `uv.lock`; Dependabot proposes updates weekly.
+
+To cut a release, update `CHANGELOG.md` and the version in `pyproject.toml`, then:
+
+```bash
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+The release workflow re-runs the checks, builds the wheel and source
+distribution, and publishes a GitHub Release with generated notes.
 
 ## Adding a tool
 
 Subclass `WorkspaceTool` (or `Tool` if you need other dependencies) in
 `tiny_agent/tools.py`, declare `name`, `description`, `parameters` and
-`required`, implement `run(**kwargs)`, then add an instance to
+`required`, implement `run` with keyword parameters matching the schema, then add an instance to
 the list in `build_app` in `tiny_agent/cli.py`. Validation, error reporting and
 output truncation are handled for you.
-
-## Development
-
-Lint and formatting use [ruff](https://docs.astral.sh/ruff/); settings live in
-`pyproject.toml`.
-
-```bash
-.venv/bin/pip install ruff
-.venv/bin/ruff format .        # format
-.venv/bin/ruff check .         # lint
-.venv/bin/python -m unittest   # tests
-```
-
-## CI/CD
-
-Two GitHub Actions workflows live in `.github/workflows/`:
-
-- **CI** (`ci.yml`) runs on every push and pull request to `main`. It checks
-  formatting and lint, then byte-compiles and runs the unit tests on Python
-  3.10 through 3.13.
-- **Release** (`release.yml`) runs when you push a tag like `v0.1.0`. It
-  re-runs the tests, then publishes a GitHub Release with generated notes and
-  a zip of the source.
-
-```bash
-git tag v0.1.0 && git push origin v0.1.0   # cut a release
-```

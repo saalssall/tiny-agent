@@ -57,7 +57,7 @@ class RuleTests(unittest.TestCase):
     def test_dangerous_commands_hit_a_rule(self):
         for command, expected in ALWAYS_ASK.items():
             reason = match_rule(command)
-            self.assertIsNotNone(reason, f"no rule matched: {command!r}")
+            assert reason is not None, f"no rule matched: {command!r}"
             self.assertIn(expected.lower(), reason.lower(), f"{command!r} matched the wrong rule: {reason}")
 
     def test_benign_commands_do_not_hit_a_rule(self):
@@ -113,9 +113,10 @@ class GateTests(unittest.TestCase):
 @unittest.skipUnless(DEFAULT_MODEL_PATH.is_file(), "model file is missing")
 class ShippedModelTests(unittest.TestCase):
     def setUp(self):
-        self.model = RiskModel.load()
-        self.assertIsNotNone(self.model)
-        self.gate = CommandGate(self.model)
+        model = RiskModel.load()
+        assert model is not None
+        self.model = model
+        self.gate = CommandGate(model)
 
     def test_everyday_safe_commands_auto_approve(self):
         for command in [

@@ -6,11 +6,13 @@ import argparse
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, cast, get_args
 
 APP_NAME = "tiny-agent"
 DEFAULT_MODEL = "claude-opus-5"
-EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
-DEFAULT_EFFORT = "high"
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+EFFORT_LEVELS: tuple[Effort, ...] = get_args(Effort)
+DEFAULT_EFFORT: Effort = "high"
 KEY_FILE_NAME = "API.KEY"
 
 # USD per million tokens: (input, output, cache write, cache read)
@@ -46,9 +48,11 @@ class Settings:
     workspace: Path
     api_key: str
     model: str = DEFAULT_MODEL
-    effort: str = DEFAULT_EFFORT
+    effort: Effort = DEFAULT_EFFORT
     auto_approve: bool = False
     always_ask: bool = False
+    verbose: bool = False
+    max_rounds: int = 50  # tool rounds allowed per user message before the agent stops
     max_tokens: int = 64_000
     command_timeout: int = 120
     max_tool_output: int = 40_000
@@ -65,10 +69,14 @@ def load_api_key(search_dir: Path) -> str | None:
     return None
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(version: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=APP_NAME,
         description="A small Claude-powered agent that works inside one directory.",
+    )
+    parser.add_argument("--version", action="version", version=f"{APP_NAME} {version}")
+    parser.add_argument(
+        "--verbose", action="store_true", help="log requests, stop reasons and tool calls to stderr"
     )
     parser.add_argument(
         "workspace",
@@ -98,9 +106,9 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_settings(argv: list[str] | None, key_search_dir: Path) -> Settings:
+def parse_settings(argv: list[str] | None, key_search_dir: Path, version: str = "unknown") -> Settings:
     """Turn command-line arguments into validated Settings. Raises ConfigError."""
-    args = build_parser().parse_args(argv)
+    args = build_parser(version).parse_args(argv)
 
     workspace = Path(args.workspace).expanduser().resolve()
     if not workspace.is_dir():
@@ -118,7 +126,8 @@ def parse_settings(argv: list[str] | None, key_search_dir: Path) -> Settings:
         workspace=workspace,
         api_key=api_key,
         model=args.model,
-        effort=args.effort,
+        effort=cast("Effort", args.effort),
         auto_approve=args.yolo,
         always_ask=args.always_ask,
+        verbose=args.verbose,
     )

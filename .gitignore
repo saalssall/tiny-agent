@@ -2,3 +2,8 @@ API.KEY
 .venv/
 __pycache__/
 .DS_Store
+dist/
+.coverage
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

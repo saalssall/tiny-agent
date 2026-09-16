@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, cast
 
 import anthropic
-from anthropic.types.beta import BetaMessage, BetaToolUseBlock
+from anthropic.types.beta import (
+    BetaMessage,
+    BetaMessageParam,
+    BetaTextBlockParam,
+    BetaToolUnionParam,
+    BetaToolUseBlock,
+)
 
 from .config import PRICES, SYSTEM_PROMPT, Settings
 from .console import Console
@@ -16,6 +23,8 @@ FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 # How many streamed tool-input fragments to receive between progress dots.
 PROGRESS_EVERY = 25
+
+log = logging.getLogger(__name__)
 
 
 class Conversation:
@@ -89,15 +98,22 @@ class Agent:
         self.conversation = Conversation()
         self.usage = UsageTracker()
         # Identical bytes on every request, so the API serves it from cache.
-        self._system = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+        self._system: list[BetaTextBlockParam] = [
+            {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+        ]
 
     # -- public API -------------------------------------------------------
 
     def ask(self, user_text: str) -> None:
-        """Handle one user message, including any number of tool rounds."""
+        """Handle one user message, including up to settings.max_rounds tool rounds."""
         self.conversation.add_user(user_text)
-        while self._step():
-            pass
+        for _ in range(self.settings.max_rounds):
+            if not self._step():
+                return
+        log.warning("stopped after %d tool rounds", self.settings.max_rounds)
+        self.console.warn(
+            f"\n[stopped after {self.settings.max_rounds} tool rounds; say 'continue' to keep going]"
+        )
 
     # -- the loop ---------------------------------------------------------
 
@@ -106,6 +122,14 @@ class Agent:
         response = self._request_with_retry()
         self.usage.add(response.usage)
         tool_calls = [block for block in response.content if isinstance(block, BetaToolUseBlock)]
+        log.debug(
+            "response stop_reason=%s tool_calls=%d in=%d out=%d cache_read=%d",
+            response.stop_reason,
+            len(tool_calls),
+            response.usage.input_tokens,
+            response.usage.output_tokens,
+            response.usage.cache_read_input_tokens or 0,
+        )
 
         # Replies that must not enter the history: they may hold a half-finished tool call.
         if response.stop_reason == "refusal":
@@ -140,12 +164,13 @@ class Agent:
         """Stream one response, printing text as it arrives. Returns the final message."""
         started_text = False
         json_chunks = 0
+        log.debug("request model=%s messages=%d", self.settings.model, len(self.conversation.messages))
         with self.client.beta.messages.stream(
             model=self.settings.model,
             max_tokens=self.settings.max_tokens,
             system=self._system,
-            tools=self.tools.schemas(),
-            messages=self.conversation.messages,
+            tools=cast("list[BetaToolUnionParam]", self.tools.schemas()),
+            messages=cast("list[BetaMessageParam]", self.conversation.messages),
             thinking={"type": "adaptive"},
             output_config={"effort": self.settings.effort},
             betas=[FALLBACK_BETA],
@@ -172,6 +197,7 @@ class Agent:
         for call in tool_calls:
             self.console.tool_call(call.name, call.input)
             result = self.tools.execute(call.name, call.input)
+            log.info("tool %s error=%s -> %d chars", call.name, result.is_error, len(result.content))
             self.console.tool_result(result.content, result.is_error)
             block: dict[str, Any] = {"type": "tool_result", "tool_use_id": call.id, "content": result.content}
             if result.is_error:
