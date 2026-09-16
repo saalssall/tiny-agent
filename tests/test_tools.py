@@ -4,8 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tiny_agent.tools import (EditFileTool, ListFilesTool, ReadFileTool, RunCommandTool,
-                              ToolRegistry, WriteFileTool)
+from tiny_agent.tools import (
+    EditFileTool,
+    ListFilesTool,
+    ReadFileTool,
+    RunCommandTool,
+    ToolRegistry,
+    WriteFileTool,
+)
 from tiny_agent.workspace import Workspace, WorkspaceError
 
 
@@ -34,9 +40,9 @@ class WorkspaceTests(unittest.TestCase):
     def test_replace_once_requires_unique_match(self):
         self.ws.write("f.txt", "a\na\n")
         with self.assertRaises(WorkspaceError):
-            self.ws.replace_once("f.txt", "a", "b")          # ambiguous
+            self.ws.replace_once("f.txt", "a", "b")  # ambiguous
         with self.assertRaises(WorkspaceError):
-            self.ws.replace_once("f.txt", "zzz", "b")        # missing
+            self.ws.replace_once("f.txt", "zzz", "b")  # missing
         self.ws.replace_once("f.txt", "a\na", "b\nc")
         self.assertEqual(self.ws.read("f.txt"), "b\nc\n")
 
@@ -53,10 +59,16 @@ class ToolTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.ws = Workspace(Path(self.tmp.name))
         self.approved: list[str] = []
-        self.registry = ToolRegistry([
-            ListFilesTool(self.ws), ReadFileTool(self.ws), WriteFileTool(self.ws),
-            EditFileTool(self.ws), RunCommandTool(self.ws, self._approve),
-        ], max_output=50)
+        self.registry = ToolRegistry(
+            [
+                ListFilesTool(self.ws),
+                ReadFileTool(self.ws),
+                WriteFileTool(self.ws),
+                EditFileTool(self.ws),
+                RunCommandTool(self.ws, self._approve),
+            ],
+            max_output=50,
+        )
         self.allow_commands = True
 
     def tearDown(self):

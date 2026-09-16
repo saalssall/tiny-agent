@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import subprocess
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, ClassVar
 
 from .workspace import Workspace, WorkspaceError
 
 # Map JSON-schema type names to the Python types we accept for them.
 _JSON_TYPES: dict[str, type | tuple[type, ...]] = {
-    "string": str, "boolean": bool, "integer": int, "number": (int, float),
+    "string": str,
+    "boolean": bool,
+    "integer": int,
+    "number": (int, float),
 }
 
 
@@ -24,10 +28,11 @@ class ToolResult:
 class Tool(ABC):
     """Base class for a callable tool. Subclasses declare a schema and implement run()."""
 
-    name: str
-    description: str
-    parameters: dict[str, dict[str, str]]   # property name -> {"type": ..., "description": ...}
-    required: tuple[str, ...] = ()
+    name: ClassVar[str]
+    description: ClassVar[str]
+    # property name -> {"type": ..., "description": ...}
+    parameters: ClassVar[dict[str, dict[str, str]]]
+    required: ClassVar[tuple[str, ...]] = ()
 
     def schema(self) -> dict[str, Any]:
         """The tool definition sent to the API."""
@@ -72,10 +77,13 @@ class Tool(ABC):
 # File tools
 # --------------------------------------------------------------------------- #
 
+
 class ListFilesTool(Tool):
     name = "list_files"
-    description = ("List files and directories under a path in the workspace. "
-                   "Noise directories (.git, node_modules, .venv, __pycache__) are skipped.")
+    description = (
+        "List files and directories under a path in the workspace. "
+        "Noise directories (.git, node_modules, .venv, __pycache__) are skipped."
+    )
     parameters = {
         "path": {"type": "string", "description": "Directory relative to the workspace. Defaults to '.'."},
         "recursive": {"type": "boolean", "description": "Walk subdirectories too. Defaults to false."},
@@ -122,8 +130,10 @@ class WriteFileTool(Tool):
 
 class EditFileTool(Tool):
     name = "edit_file"
-    description = ("Replace one exact occurrence of old_text with new_text in a file. "
-                   "old_text must appear exactly once; include enough context to make it unique.")
+    description = (
+        "Replace one exact occurrence of old_text with new_text in a file. "
+        "old_text must appear exactly once; include enough context to make it unique."
+    )
     parameters = {
         "path": {"type": "string", "description": "File path relative to the workspace."},
         "old_text": {"type": "string", "description": "Exact text to find (must be unique in the file)."},
@@ -143,10 +153,13 @@ class EditFileTool(Tool):
 # Shell tool
 # --------------------------------------------------------------------------- #
 
+
 class RunCommandTool(Tool):
     name = "run_command"
-    description = ("Run a shell command in the workspace root and return stdout, stderr and the "
-                   "exit code. The user must approve each command before it runs.")
+    description = (
+        "Run a shell command in the workspace root and return stdout, stderr and the "
+        "exit code. The user must approve each command before it runs."
+    )
     parameters = {"command": {"type": "string", "description": "The shell command to run."}}
     required = ("command",)
 
@@ -161,8 +174,13 @@ class RunCommandTool(Tool):
             return "The user declined to run this command."
         try:
             proc = subprocess.run(
-                command, shell=True, cwd=self.workspace.root,
-                capture_output=True, text=True, timeout=self.timeout,
+                command,
+                shell=True,
+                cwd=self.workspace.root,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                check=False,
             )
         except subprocess.TimeoutExpired:
             return f"Command timed out after {self.timeout} seconds."
@@ -179,6 +197,7 @@ class RunCommandTool(Tool):
 # --------------------------------------------------------------------------- #
 # Registry
 # --------------------------------------------------------------------------- #
+
 
 class ToolRegistry:
     """Holds the available tools, exposes their schemas, and executes calls safely."""
@@ -203,7 +222,7 @@ class ToolRegistry:
             output = tool.run(**args)  # type: ignore[arg-type]  (validated above)
         except WorkspaceError as exc:
             return ToolResult(str(exc), is_error=True)
-        except Exception as exc:  # never let a tool crash the agent loop
+        except Exception as exc:
             return ToolResult(f"{type(exc).__name__}: {exc}", is_error=True)
 
         if len(output) > self.max_output:

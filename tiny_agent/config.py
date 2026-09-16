@@ -68,14 +68,26 @@ def build_parser() -> argparse.ArgumentParser:
         prog=APP_NAME,
         description="A small Claude-powered agent that works inside one directory.",
     )
-    parser.add_argument("workspace", nargs="?", default=".",
-                        help="directory the agent may read, edit and run commands in (default: current)")
-    parser.add_argument("--yolo", action="store_true",
-                        help="run shell commands without asking for confirmation")
-    parser.add_argument("--model", default=os.environ.get("AGENT_MODEL", DEFAULT_MODEL),
-                        help=f"Claude model ID (default: {DEFAULT_MODEL})")
-    parser.add_argument("--effort", default=os.environ.get("AGENT_EFFORT", "high"), choices=EFFORT_LEVELS,
-                        help="how hard the model thinks (default: high)")
+    parser.add_argument(
+        "workspace",
+        nargs="?",
+        default=".",
+        help="directory the agent may read, edit and run commands in (default: current)",
+    )
+    parser.add_argument(
+        "--yolo", action="store_true", help="run shell commands without asking for confirmation"
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("AGENT_MODEL", DEFAULT_MODEL),
+        help=f"Claude model ID (default: {DEFAULT_MODEL})",
+    )
+    parser.add_argument(
+        "--effort",
+        default=os.environ.get("AGENT_EFFORT", "high"),
+        choices=EFFORT_LEVELS,
+        help="how hard the model thinks (default: high)",
+    )
     return parser
 
 

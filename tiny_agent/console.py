@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Iterable, TextIO
+from collections.abc import Iterable
+from typing import TextIO
 
 from .config import APP_NAME, Settings
 
@@ -23,12 +24,23 @@ class Console:
     def _paint(self, code: str, text: str) -> str:
         return f"\033[{code}m{text}\033[0m" if self.color else text
 
-    def dim(self, t: str) -> str:    return self._paint("2", t)
-    def bold(self, t: str) -> str:   return self._paint("1", t)
-    def cyan(self, t: str) -> str:   return self._paint("36", t)
-    def green(self, t: str) -> str:  return self._paint("32", t)
-    def yellow(self, t: str) -> str: return self._paint("33", t)
-    def red(self, t: str) -> str:    return self._paint("31", t)
+    def dim(self, t: str) -> str:
+        return self._paint("2", t)
+
+    def bold(self, t: str) -> str:
+        return self._paint("1", t)
+
+    def cyan(self, t: str) -> str:
+        return self._paint("36", t)
+
+    def green(self, t: str) -> str:
+        return self._paint("32", t)
+
+    def yellow(self, t: str) -> str:
+        return self._paint("33", t)
+
+    def red(self, t: str) -> str:
+        return self._paint("31", t)
 
     # -- basic output -----------------------------------------------------
 

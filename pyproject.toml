@@ -1,0 +1,18 @@
+[project]
+name = "tiny-agent"
+version = "0.1.0"
+description = "A small Claude-powered agent for your terminal."
+requires-python = ">=3.10"
+dependencies = ["anthropic>=0.80"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I isort, UP pyupgrade, B bugbear, RUF ruff-specific
+select = ["E", "W", "F", "I", "UP", "B", "RUF"]
+ignore = [
+  "RUF001",  # we deliberately use unicode glyphs (›, ▸, ✓) in terminal output
+  "RUF012",  # Tool subclasses override attributes declared ClassVar on the base class
+]

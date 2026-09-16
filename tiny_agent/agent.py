@@ -57,8 +57,9 @@ class UsageTracker:
         if prices is None:
             return None
         p_in, p_out, p_write, p_read = prices
-        total = (self.input * p_in + self.output * p_out
-                 + self.cache_write * p_write + self.cache_read * p_read)
+        total = (
+            self.input * p_in + self.output * p_out + self.cache_write * p_write + self.cache_read * p_read
+        )
         return total / 1_000_000
 
     def rows(self, model: str) -> list[tuple[str, str]]:
@@ -78,8 +79,9 @@ class Agent:
 
     MAX_JSON_RETRIES = 2
 
-    def __init__(self, client: anthropic.Anthropic, settings: Settings,
-                 tools: ToolRegistry, console: Console):
+    def __init__(
+        self, client: anthropic.Anthropic, settings: Settings, tools: ToolRegistry, console: Console
+    ):
         self.client = client
         self.settings = settings
         self.tools = tools

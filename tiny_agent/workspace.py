@@ -5,9 +5,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-SKIP_DIRS = frozenset({
-    ".git", ".venv", "venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache",
-})
+SKIP_DIRS = frozenset(
+    {
+        ".git",
+        ".venv",
+        "venv",
+        "node_modules",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+    }
+)
 
 
 class WorkspaceError(Exception):

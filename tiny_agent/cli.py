@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import anthropic
 
 from .agent import Agent
 from .config import APP_NAME, ConfigError, Settings, parse_settings
 from .console import Console
-from .tools import (EditFileTool, ListFilesTool, ReadFileTool, RunCommandTool,
-                    ToolRegistry, WriteFileTool)
+from .tools import EditFileTool, ListFilesTool, ReadFileTool, RunCommandTool, ToolRegistry, WriteFileTool
 from .workspace import Workspace
 
 HELP_TEXT = f"""\
@@ -45,7 +44,7 @@ class ChatApp:
         self.console.banner(self.settings)
         while True:
             try:
-                text = self.console.ask(f"\nyou › ")
+                text = self.console.ask("\nyou › ")
             except (EOFError, KeyboardInterrupt):
                 self.console.write()
                 break

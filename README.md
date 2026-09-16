@@ -63,3 +63,30 @@ Subclass `Tool` in `tiny_agent/tools.py`, declare `name`, `description`,
 `parameters` and `required`, implement `run(**kwargs)`, then add an instance to
 the list in `build_app` in `tiny_agent/cli.py`. Validation, error reporting and
 output truncation are handled for you.
+
+## Development
+
+Lint and formatting use [ruff](https://docs.astral.sh/ruff/); settings live in
+`pyproject.toml`.
+
+```bash
+.venv/bin/pip install ruff
+.venv/bin/ruff format .        # format
+.venv/bin/ruff check .         # lint
+.venv/bin/python -m unittest   # tests
+```
+
+## CI/CD
+
+Two GitHub Actions workflows live in `.github/workflows/`:
+
+- **CI** (`ci.yml`) runs on every push and pull request to `main`. It checks
+  formatting and lint, then byte-compiles and runs the unit tests on Python
+  3.10 through 3.13.
+- **Release** (`release.yml`) runs when you push a tag like `v0.1.0`. It
+  re-runs the tests, then publishes a GitHub Release with generated notes and
+  a zip of the source.
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0   # cut a release
+```
