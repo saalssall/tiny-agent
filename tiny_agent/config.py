@@ -10,6 +10,7 @@ from pathlib import Path
 APP_NAME = "tiny-agent"
 DEFAULT_MODEL = "claude-opus-5"
 EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
+DEFAULT_EFFORT = "high"
 KEY_FILE_NAME = "API.KEY"
 
 # USD per million tokens: (input, output, cache write, cache read)
@@ -45,7 +46,7 @@ class Settings:
     workspace: Path
     api_key: str
     model: str = DEFAULT_MODEL
-    effort: str = "high"
+    effort: str = DEFAULT_EFFORT
     auto_approve: bool = False
     max_tokens: int = 64_000
     command_timeout: int = 120
@@ -84,9 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--effort",
-        default=os.environ.get("AGENT_EFFORT", "high"),
+        default=os.environ.get("AGENT_EFFORT", DEFAULT_EFFORT),
         choices=EFFORT_LEVELS,
-        help="how hard the model thinks (default: high)",
+        help=f"how hard the model thinks (default: {DEFAULT_EFFORT})",
     )
     return parser
 

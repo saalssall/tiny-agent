@@ -78,7 +78,14 @@ class Tool(ABC):
 # --------------------------------------------------------------------------- #
 
 
-class ListFilesTool(Tool):
+class WorkspaceTool(Tool):
+    """A tool whose only dependency is the workspace."""
+
+    def __init__(self, workspace: Workspace):
+        self.workspace = workspace
+
+
+class ListFilesTool(WorkspaceTool):
     name = "list_files"
     description = (
         "List files and directories under a path in the workspace. "
@@ -89,28 +96,22 @@ class ListFilesTool(Tool):
         "recursive": {"type": "boolean", "description": "Walk subdirectories too. Defaults to false."},
     }
 
-    def __init__(self, workspace: Workspace):
-        self.workspace = workspace
-
     def run(self, path: str = ".", recursive: bool = False) -> str:
         return "\n".join(self.workspace.list(path, recursive)) or "(empty)"
 
 
-class ReadFileTool(Tool):
+class ReadFileTool(WorkspaceTool):
     name = "read_file"
     description = "Read a text file and return its contents with line numbers."
     parameters = {"path": {"type": "string", "description": "File path relative to the workspace."}}
     required = ("path",)
-
-    def __init__(self, workspace: Workspace):
-        self.workspace = workspace
 
     def run(self, path: str) -> str:
         lines = self.workspace.read(path).splitlines()
         return "\n".join(f"{i:5d}\t{line}" for i, line in enumerate(lines, 1)) or "(empty file)"
 
 
-class WriteFileTool(Tool):
+class WriteFileTool(WorkspaceTool):
     name = "write_file"
     description = "Create or overwrite a text file. Parent directories are created as needed."
     parameters = {
@@ -119,16 +120,13 @@ class WriteFileTool(Tool):
     }
     required = ("path", "content")
 
-    def __init__(self, workspace: Workspace):
-        self.workspace = workspace
-
     def run(self, path: str, content: str) -> str:
         existed = self.workspace.write(path, content)
         verb = "Overwrote" if existed else "Created"
         return f"{verb} {path} ({len(content.splitlines())} lines)"
 
 
-class EditFileTool(Tool):
+class EditFileTool(WorkspaceTool):
     name = "edit_file"
     description = (
         "Replace one exact occurrence of old_text with new_text in a file. "
@@ -140,9 +138,6 @@ class EditFileTool(Tool):
         "new_text": {"type": "string", "description": "Replacement text."},
     }
     required = ("path", "old_text", "new_text")
-
-    def __init__(self, workspace: Workspace):
-        self.workspace = workspace
 
     def run(self, path: str, old_text: str, new_text: str) -> str:
         self.workspace.replace_once(path, old_text, new_text)

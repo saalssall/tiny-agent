@@ -31,7 +31,8 @@ class ChatApp:
         self.settings = settings
         self.console = console
         self.agent = agent
-        self.commands: dict[str, Callable[[], bool]] = {
+        self.running = False
+        self.commands: dict[str, Callable[[], None]] = {
             "/help": self._cmd_help,
             "/cost": self._cmd_cost,
             "/clear": self._cmd_clear,
@@ -42,25 +43,27 @@ class ChatApp:
 
     def run(self) -> None:
         self.console.banner(self.settings)
-        while True:
+        self.running = True
+        while self.running:
             try:
                 text = self.console.ask("\nyou › ")
             except (EOFError, KeyboardInterrupt):
                 self.console.write()
                 break
-            if not text:
-                continue
-            if text in self.commands:
-                if not self.commands[text]():  # a command returns False to exit
-                    break
-                continue
-            if text.startswith("/"):
-                self.console.warn(f"unknown command {text!r}; type /help for the list")
-                continue
-            self._chat(text)
+            self._handle(text)
 
         self.console.write(self.console.dim("\nsession usage"))
-        self.console.table(self.agent.usage.rows(self.settings.model))
+        self._cmd_cost()
+
+    def _handle(self, text: str) -> None:
+        if not text:
+            return
+        if text in self.commands:
+            self.commands[text]()
+        elif text.startswith("/"):
+            self.console.warn(f"unknown command {text!r}; type /help for the list")
+        else:
+            self._chat(text)
 
     # -- one message to the agent, with friendly error handling ---------------
 
@@ -69,39 +72,40 @@ class ChatApp:
         try:
             self.agent.ask(text)
             self.console.write()
-        except KeyboardInterrupt:
-            self.console.warn("\n[interrupted]")
+        except (KeyboardInterrupt, anthropic.APIError) as exc:
+            # Roll back so a half-finished turn never lingers in the history.
             self.agent.conversation.rollback(checkpoint)
-        except anthropic.AuthenticationError:
-            self.console.error("\nAuthentication failed. Check your API key.")
-            self.agent.conversation.rollback(checkpoint)
-        except anthropic.RateLimitError:
-            self.console.error("\nRate limited. Wait a moment and try again.")
-            self.agent.conversation.rollback(checkpoint)
-        except anthropic.APIStatusError as exc:
-            self.console.error(f"\nAPI error {exc.status_code}: {exc.message}")
-            self.agent.conversation.rollback(checkpoint)
-        except anthropic.APIConnectionError:
-            self.console.error("\nNetwork error. Check your connection and try again.")
-            self.agent.conversation.rollback(checkpoint)
+            self.console.error("\n" + describe_error(exc))
 
     # -- slash commands -------------------------------------------------------
 
-    def _cmd_help(self) -> bool:
+    def _cmd_help(self) -> None:
         self.console.write(HELP_TEXT)
-        return True
 
-    def _cmd_cost(self) -> bool:
+    def _cmd_cost(self) -> None:
         self.console.table(self.agent.usage.rows(self.settings.model))
-        return True
 
-    def _cmd_clear(self) -> bool:
+    def _cmd_clear(self) -> None:
         self.agent.conversation.clear()
         self.console.info("conversation cleared")
-        return True
 
-    def _cmd_quit(self) -> bool:
-        return False
+    def _cmd_quit(self) -> None:
+        self.running = False
+
+
+def describe_error(exc: BaseException) -> str:
+    """A one-line, human-friendly explanation of a failed turn."""
+    if isinstance(exc, KeyboardInterrupt):
+        return "[interrupted]"
+    if isinstance(exc, anthropic.AuthenticationError):
+        return "Authentication failed. Check your API key."
+    if isinstance(exc, anthropic.RateLimitError):
+        return "Rate limited. Wait a moment and try again."
+    if isinstance(exc, anthropic.APIStatusError):
+        return f"API error {exc.status_code}: {exc.message}"
+    if isinstance(exc, anthropic.APIConnectionError):
+        return "Network error. Check your connection and try again."
+    return f"Unexpected error: {exc}"
 
 
 def build_app(settings: Settings, console: Console) -> ChatApp:

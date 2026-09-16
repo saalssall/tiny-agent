@@ -41,7 +41,8 @@ tiny_agent/
   tools.py              Tool base class, the five tools, and ToolRegistry
   agent.py              Agent loop, Conversation history, UsageTracker
   cli.py                ChatApp: the read-eval loop and slash commands
-tests/test_tools.py     unit tests (no network needed)
+tests/test_tools.py     unit tests for the workspace and tools
+tests/test_agent.py     unit tests for the agent loop, using scripted responses
 ```
 
 How a turn flows: `ChatApp` reads a line and calls `Agent.ask`. The agent
@@ -59,8 +60,9 @@ the last complete turn so the history never gets out of sync.
 
 ## Adding a tool
 
-Subclass `Tool` in `tiny_agent/tools.py`, declare `name`, `description`,
-`parameters` and `required`, implement `run(**kwargs)`, then add an instance to
+Subclass `WorkspaceTool` (or `Tool` if you need other dependencies) in
+`tiny_agent/tools.py`, declare `name`, `description`, `parameters` and
+`required`, implement `run(**kwargs)`, then add an instance to
 the list in `build_app` in `tiny_agent/cli.py`. Validation, error reporting and
 output truncation are handled for you.
 
