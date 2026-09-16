@@ -5,6 +5,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+- README expanded: install without uv, full flag table, chat walkthrough, tool table,
+  safety model, configuration reference and troubleshooting.
+
 ## [0.3.0] - 2026-09-16
 
 ### Added
