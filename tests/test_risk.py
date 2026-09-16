@@ -110,17 +110,7 @@ class GateTests(unittest.TestCase):
         self.assertFalse(gate.assess("ls | ls").risky)
 
 
-def sklearn_available() -> bool:
-    try:
-        import sklearn  # noqa: F401
-    except ImportError:
-        return False
-    return True
-
-
-@unittest.skipUnless(
-    sklearn_available() and DEFAULT_MODEL_PATH.is_file(), "scikit-learn or the model file is missing"
-)
+@unittest.skipUnless(DEFAULT_MODEL_PATH.is_file(), "model file is missing")
 class ShippedModelTests(unittest.TestCase):
     def setUp(self):
         self.model = RiskModel.load()
