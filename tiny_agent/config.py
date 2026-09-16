@@ -48,6 +48,7 @@ class Settings:
     model: str = DEFAULT_MODEL
     effort: str = DEFAULT_EFFORT
     auto_approve: bool = False
+    always_ask: bool = False
     max_tokens: int = 64_000
     command_timeout: int = 120
     max_tool_output: int = 40_000
@@ -77,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--yolo", action="store_true", help="run shell commands without asking for confirmation"
+    )
+    parser.add_argument(
+        "--always-ask",
+        action="store_true",
+        help="disable the risk classifier so every shell command asks for confirmation",
     )
     parser.add_argument(
         "--model",
@@ -114,4 +120,5 @@ def parse_settings(argv: list[str] | None, key_search_dir: Path) -> Settings:
         model=args.model,
         effort=args.effort,
         auto_approve=args.yolo,
+        always_ask=args.always_ask,
     )

@@ -1,9 +1,12 @@
 [project]
 name = "tiny-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "A small Claude-powered agent for your terminal."
 requires-python = ">=3.10"
 dependencies = ["anthropic>=0.80"]
+
+[project.optional-dependencies]
+ml = ["scikit-learn>=1.5"]
 
 [tool.ruff]
 line-length = 110

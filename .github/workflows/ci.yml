@@ -39,8 +39,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt -r requirements-ml.txt
       - name: Byte-compile
         run: python -m compileall -q tiny_agent main.py tests
       - name: Run unit tests
         run: python -m unittest -v
+      - name: Evaluate risk classifier
+        run: python ml/train.py --no-save

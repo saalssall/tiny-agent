@@ -1,0 +1,2 @@
+# Optional: enables the command risk classifier (and is needed to retrain it).
+scikit-learn>=1.5

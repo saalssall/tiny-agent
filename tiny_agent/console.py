@@ -81,8 +81,9 @@ class Console:
     def banner(self, settings: Settings) -> None:
         self.write(self.bold(APP_NAME) + self.dim(f"  ·  {settings.model}  ·  effort {settings.effort}"))
         self.write(self.dim(f"workspace: {settings.workspace}"))
-        note = "   (--yolo: commands run without asking)" if settings.auto_approve else ""
-        self.write(self.dim("type /help for commands" + note))
+        self.write(self.dim("type /help for commands"))
+        if settings.auto_approve:
+            self.warn("--yolo: shell commands run without asking")
 
     def assistant_text(self, chunk: str) -> None:
         """Print a streamed piece of the model's reply, no newline."""

@@ -10,6 +10,7 @@ import anthropic
 from .agent import Agent
 from .config import APP_NAME, ConfigError, Settings, parse_settings
 from .console import Console
+from .risk import CommandGate, RiskModel
 from .tools import EditFileTool, ListFilesTool, ReadFileTool, RunCommandTool, ToolRegistry, WriteFileTool
 from .workspace import Workspace
 
@@ -27,10 +28,11 @@ HELP_TEXT = f"""\
 class ChatApp:
     """Reads user input, dispatches slash commands, and hands everything else to the agent."""
 
-    def __init__(self, settings: Settings, console: Console, agent: Agent):
+    def __init__(self, settings: Settings, console: Console, agent: Agent, gate_enabled: bool = False):
         self.settings = settings
         self.console = console
         self.agent = agent
+        self.gate_enabled = gate_enabled
         self.running = False
         self.commands: dict[str, Callable[[], None]] = {
             "/help": self._cmd_help,
@@ -43,6 +45,11 @@ class ChatApp:
 
     def run(self) -> None:
         self.console.banner(self.settings)
+        self.console.info(
+            "shell commands: safe-looking ones run automatically, the rest ask you first"
+            if self.gate_enabled
+            else "shell commands: every command asks you first"
+        )
         self.running = True
         while self.running:
             try:
@@ -108,13 +115,31 @@ def describe_error(exc: BaseException) -> str:
     return f"Unexpected error: {exc}"
 
 
+class Approver:
+    """Decides whether a shell command may run: --yolo, then the risk gate, then the user."""
+
+    def __init__(self, console: Console, gate: CommandGate, auto_approve: bool):
+        self.console = console
+        self.gate = gate
+        self.auto_approve = auto_approve
+
+    def __call__(self, command: str) -> bool:
+        self.console.command_preview(command)
+        if self.auto_approve:
+            return True
+        verdict = self.gate.assess(command)
+        if not verdict.risky:
+            self.console.info(verdict.reason)
+            return True
+        self.console.info(verdict.reason)
+        return self.console.confirm("run this?")
+
+
 def build_app(settings: Settings, console: Console) -> ChatApp:
     """Wire the pieces together. Kept separate so tests can build an app without a TTY."""
     workspace = Workspace(settings.workspace)
-
-    def approve(command: str) -> bool:
-        console.command_preview(command)
-        return settings.auto_approve or console.confirm("run this?")
+    gate = CommandGate(None if settings.always_ask else RiskModel.load())
+    approve = Approver(console, gate, settings.auto_approve)
 
     tools = ToolRegistry(
         [
@@ -128,7 +153,7 @@ def build_app(settings: Settings, console: Console) -> ChatApp:
     )
     client = anthropic.Anthropic(api_key=settings.api_key)
     agent = Agent(client, settings, tools, console)
-    return ChatApp(settings, console, agent)
+    return ChatApp(settings, console, agent, gate_enabled=gate.enabled)
 
 
 def main(argv: list[str] | None = None, key_search_dir: Path | None = None) -> int:
