@@ -12,12 +12,6 @@ uv venv .venv && uv pip install --python .venv/bin/python -r requirements.txt
 # or: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-Optional, enables the command risk classifier (see below):
-
-```bash
-uv pip install --python .venv/bin/python -r requirements-ml.txt
-```
-
 Provide an API key either way:
 
 - `export ANTHROPIC_API_KEY=sk-ant-...`, or
@@ -49,7 +43,7 @@ tiny_agent/
   agent.py              Agent loop, Conversation history, UsageTracker
   cli.py                ChatApp: the read-eval loop, slash commands, Approver
   risk.py               command risk gate: hard rules + trained classifier
-  risk_model.joblib     the trained classifier (regenerate with ml/train.py)
+  risk_model.json       the trained classifier as plain weights (from ml/train.py)
 ml/make_dataset.py      generates the labelled command dataset from templates
 ml/commands.csv         the dataset: command, label, template id
 ml/train.py             trains, evaluates and saves the classifier
@@ -75,13 +69,16 @@ before it can skip the y/N prompt.
    that rewrite state, redirecting into files, in-place edits, running scripts
    or inline code, and any path that leaves the workspace. The rules are the
    floor. Nothing below can override them.
-2. **A trained classifier.** For commands no rule matched, a scikit-learn model
-   (character n-gram TF-IDF into logistic regression) estimates the probability
-   that the command is safe. Only a confident verdict, 85 percent or higher,
-   auto-approves. Anything else asks, and the reason is shown either way.
+2. **A trained classifier.** For commands no rule matched, a model trained
+   with scikit-learn (character n-gram and word TF-IDF into logistic
+   regression) estimates the probability that the command is safe. Only a
+   confident verdict, 85 percent or higher, auto-approves. Anything else asks,
+   and the reason is shown either way.
 
-Without scikit-learn installed, or with `--always-ask`, the model layer is
-skipped and every command asks, exactly as before the classifier existed.
+The model ships as plain JSON weights in `tiny_agent/risk_model.json` and is
+scored in pure Python, so the app needs no ML libraries at runtime and the file
+loads on every Python version. With `--always-ask`, or if the file is missing,
+the model layer is skipped and every command asks.
 
 ### How it was built
 
@@ -91,15 +88,19 @@ skipped and every command asks, exactly as before the classifier existed.
   so every held-out fold contains command shapes the model never saw. That is a
   deliberately hard test. It then reports what the deployed gate would do on
   those held-out commands and fails if any risky command would be auto-approved,
-  which CI runs on every push.
+  which CI runs on every push. Finally it exports the weights to JSON and
+  checks that the pure-Python scorer reproduces scikit-learn's probabilities
+  on every training command before saving.
 - Under that test the rules alone catch about 92 percent of risky commands, the
   gate auto-approves about a quarter of unfamiliar safe commands and zero risky
   ones. Familiar everyday commands such as `git status` or `pytest` are in the
   training data and auto-approve with high confidence.
 
-To change the behaviour, edit the templates or the rules, then:
+To change the behaviour, edit the templates or the rules, then (scikit-learn
+is needed only for this step):
 
 ```bash
+uv pip install --python .venv/bin/python -r requirements-ml.txt
 .venv/bin/python ml/make_dataset.py
 .venv/bin/python ml/train.py
 .venv/bin/python -m unittest

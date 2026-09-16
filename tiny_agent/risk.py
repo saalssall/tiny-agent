@@ -10,18 +10,24 @@ Two layers, in order:
    model estimates the probability that the command is safe. Only a confident
    "safe" verdict auto-approves; anything else asks.
 
-If scikit-learn or the model file is missing, layer 2 is skipped and every
-command that passes the rules still asks, which is the pre-classifier behaviour.
+The model is trained with scikit-learn but shipped as plain JSON weights
+(vocabularies, idf values, coefficients) and evaluated here in pure Python, so
+the app has no machine-learning dependency at runtime and the file loads on any
+Python version. If the model file is missing or unreadable, layer 2 is skipped
+and every command that passes the rules still asks.
 """
 
 from __future__ import annotations
 
+import json
+import math
 import re
-import warnings
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-DEFAULT_MODEL_PATH = Path(__file__).with_name("risk_model.joblib")
+DEFAULT_MODEL_PATH = Path(__file__).with_name("risk_model.json")
 
 # Matches the start of a command word: beginning of string, or after a separator.
 _CMD = r"(?:^|[\s;&|(])"
@@ -150,33 +156,76 @@ def split_segments(command: str) -> list[str]:
 
 
 class RiskModel:
-    """A thin wrapper around the trained scikit-learn pipeline."""
+    """Pure-Python inference for the exported TF-IDF + logistic-regression model.
 
-    def __init__(self, pipeline, threshold: float):
-        self.pipeline = pipeline
-        self.threshold = threshold
+    Mirrors scikit-learn exactly: character n-grams within word boundaries and
+    whole-word tokens, sublinear tf, idf weighting, L2 normalisation per
+    vectorizer, concatenation, then a logistic regression on the result.
+    ml/train.py checks this implementation against scikit-learn before saving.
+    """
+
+    _WORD = re.compile(r"\S+")
+
+    def __init__(self, bundle: dict[str, Any]):
+        self.threshold = float(bundle["threshold"])
+        self.min_n, self.max_n = bundle["ngram_range"]
+        self.char_vocab: dict[str, int] = bundle["char"]["vocabulary"]
+        self.char_idf: list[float] = bundle["char"]["idf"]
+        self.word_vocab: dict[str, int] = bundle["word"]["vocabulary"]
+        self.word_idf: list[float] = bundle["word"]["idf"]
+        self.word_offset = len(self.char_idf)  # word features follow char features
+        self.coef: list[float] = bundle["coef"]
+        self.intercept = float(bundle["intercept"])
 
     @classmethod
     def load(cls, path: Path = DEFAULT_MODEL_PATH) -> RiskModel | None:
-        """Load the model, or return None if scikit-learn or the file is unavailable."""
-        if not path.is_file():
-            return None
+        """Load the model, or return None if the file is missing or unreadable."""
         try:
-            import joblib
-        except ImportError:
+            return cls(json.loads(path.read_text(encoding="utf-8")))
+        except (OSError, ValueError, KeyError, TypeError):
             return None
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")  # tolerate minor scikit-learn version differences
-                bundle = joblib.load(path)
-            return cls(bundle["pipeline"], float(bundle["threshold"]))
-        except Exception:  # any load problem simply disables the model
-            return None
+
+    # -- feature extraction (matches sklearn's analyzers) ----------------
+
+    def _char_ngrams(self, text: str) -> list[str]:
+        grams: list[str] = []
+        for word in text.split():
+            padded = f" {word} "
+            for n in range(self.min_n, self.max_n + 1):
+                offset = 0
+                grams.append(padded[offset : offset + n])
+                while offset + n < len(padded):
+                    offset += 1
+                    grams.append(padded[offset : offset + n])
+                if offset == 0:  # word shorter than n: counted once, stop growing n
+                    break
+        return grams
+
+    @staticmethod
+    def _tfidf(tokens: list[str], vocab: dict[str, int], idf: list[float], offset: int) -> dict[int, float]:
+        counts = Counter(token for token in tokens if token in vocab)
+        vector = {vocab[t]: (1.0 + math.log(c)) * idf[vocab[t]] for t, c in counts.items()}
+        norm = math.sqrt(sum(v * v for v in vector.values()))
+        if norm == 0.0:
+            return {}
+        return {index + offset: value / norm for index, value in vector.items()}
+
+    def _features(self, command: str) -> dict[int, float]:
+        features = self._tfidf(self._char_ngrams(command), self.char_vocab, self.char_idf, 0)
+        features.update(
+            self._tfidf(self._WORD.findall(command), self.word_vocab, self.word_idf, self.word_offset)
+        )
+        return features
+
+    # -- prediction ------------------------------------------------------
+
+    def p_risky(self, command: str) -> float:
+        z = self.intercept + sum(self.coef[i] * v for i, v in self._features(command).items())
+        return 1.0 / (1.0 + math.exp(-z))
 
     def p_safe(self, command: str) -> float:
         """Probability that a single command segment is safe."""
-        classes = list(self.pipeline.classes_)
-        return float(self.pipeline.predict_proba([command])[0][classes.index(0)])
+        return 1.0 - self.p_risky(command)
 
 
 class CommandGate:

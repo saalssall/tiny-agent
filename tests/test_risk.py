@@ -150,6 +150,16 @@ class ShippedModelTests(unittest.TestCase):
             self.assertIsNone(match_rule(command), f"test assumes no rule matches {command!r}")
             self.assertTrue(self.gate.assess(command).risky, f"model auto-approved {command!r}")
 
+    def test_probabilities_are_well_formed(self):
+        for command in ["ls", "", "   ", "rm -rf /", "🚀 launch"]:
+            p = self.model.p_safe(command)
+            self.assertGreaterEqual(p, 0.0)
+            self.assertLessEqual(p, 1.0)
+
+    def test_char_ngrams_match_sklearn_definition(self):
+        # "ls" padded to " ls " gives 2-grams " l","ls","s " then 3-grams " ls","ls " then the single 4-gram
+        self.assertEqual(self.model._char_ngrams("ls"), [" l", "ls", "s ", " ls", "ls ", " ls "])
+
 
 if __name__ == "__main__":
     unittest.main()

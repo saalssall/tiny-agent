@@ -1,2 +1,3 @@
-# Optional: enables the command risk classifier (and is needed to retrain it).
+# Only needed to retrain the command risk classifier (ml/train.py).
+# The app itself scores commands in pure Python from tiny_agent/risk_model.json.
 scikit-learn>=1.5

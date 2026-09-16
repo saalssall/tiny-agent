@@ -8,6 +8,11 @@ The number that matters most is how many risky commands would be auto-approved
 at the deployment threshold. The script exits non-zero if that is above zero or
 if recall on the risky class drops below --min-recall, so CI catches regressions.
 
+The trained model is exported as plain JSON weights so the app can score
+commands in pure Python (see RiskModel in tiny_agent/risk.py). Before saving,
+the script checks that the pure-Python scorer reproduces scikit-learn's
+probabilities on every training command.
+
 Usage:
     python ml/train.py              # evaluate, then train on everything and save the model
     python ml/train.py --no-save    # evaluate only (used in CI)
@@ -18,10 +23,10 @@ from __future__ import annotations
 import argparse
 import csv
 import datetime as dt
+import json
 import sys
 from pathlib import Path
 
-import joblib
 import numpy as np
 import sklearn
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -31,13 +36,14 @@ from sklearn.model_selection import StratifiedGroupKFold, cross_val_predict
 from sklearn.pipeline import Pipeline, make_pipeline, make_union
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tiny_agent.risk import match_rule
+from tiny_agent.risk import RiskModel, match_rule
 
 DATA = Path(__file__).with_name("commands.csv")
-MODEL_OUT = Path(__file__).resolve().parents[1] / "tiny_agent" / "risk_model.joblib"
+MODEL_OUT = Path(__file__).resolve().parents[1] / "tiny_agent" / "risk_model.json"
 
 # Probability of "safe" the model must reach before a command is auto-approved.
 THRESHOLD = 0.85
+NGRAM_RANGE = (2, 5)
 RISKY, SAFE = 1, 0
 
 
@@ -54,7 +60,7 @@ def load_data() -> tuple[list[str], np.ndarray, np.ndarray]:
 def build_pipeline() -> Pipeline:
     """Character n-grams catch flags and paths; whole-word tokens pin down the program name."""
     features = make_union(
-        TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 5), sublinear_tf=True, lowercase=False),
+        TfidfVectorizer(analyzer="char_wb", ngram_range=NGRAM_RANGE, sublinear_tf=True, lowercase=False),
         TfidfVectorizer(analyzer="word", token_pattern=r"\S+", sublinear_tf=True, lowercase=False),
     )
     return make_pipeline(features, LogisticRegression(C=8.0, class_weight="balanced", max_iter=5000))
@@ -101,6 +107,39 @@ def evaluate(commands: list[str], y: np.ndarray, groups: np.ndarray) -> dict[str
     return {"recall_risky": recall_risky, "risky_auto_approved": risky_auto, "safe_auto_approved": safe_auto}
 
 
+def export(pipeline: Pipeline, n_samples: int) -> dict:
+    """Turn the fitted pipeline into the JSON bundle RiskModel understands."""
+    char_vec, word_vec = (t for _, t in pipeline.named_steps["featureunion"].transformer_list)
+    clf = pipeline.named_steps["logisticregression"]
+    assert list(clf.classes_) == [SAFE, RISKY]
+    return {
+        "format": 1,
+        "threshold": THRESHOLD,
+        "ngram_range": list(NGRAM_RANGE),
+        "char": {
+            "vocabulary": {k: int(v) for k, v in char_vec.vocabulary_.items()},
+            "idf": char_vec.idf_.tolist(),
+        },
+        "word": {
+            "vocabulary": {k: int(v) for k, v in word_vec.vocabulary_.items()},
+            "idf": word_vec.idf_.tolist(),
+        },
+        "coef": clf.coef_[0].tolist(),
+        "intercept": float(clf.intercept_[0]),
+        "trained_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+        "sklearn_version": sklearn.__version__,
+        "n_samples": n_samples,
+    }
+
+
+def verify_export(bundle: dict, pipeline: Pipeline, commands: list[str]) -> float:
+    """Return the largest disagreement between pure-Python scoring and scikit-learn."""
+    model = RiskModel(bundle)
+    sk = pipeline.predict_proba(commands)[:, 1]
+    ours = np.array([model.p_risky(c) for c in commands])
+    return float(np.max(np.abs(sk - ours)))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -129,18 +168,14 @@ def main() -> int:
         return 0
 
     pipeline = build_pipeline().fit(commands, y)
-    joblib.dump(
-        {
-            "pipeline": pipeline,
-            "threshold": THRESHOLD,
-            "trained_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-            "sklearn_version": sklearn.__version__,
-            "n_samples": len(commands),
-        },
-        MODEL_OUT,
-        compress=3,
-    )
-    print(f"saved model to {MODEL_OUT}")
+    bundle = export(pipeline, len(commands))
+    gap = verify_export(bundle, pipeline, commands)
+    print(f"pure-Python scorer vs scikit-learn: max probability gap {gap:.2e}")
+    if gap > 1e-6:
+        print("FAIL: exported model does not reproduce scikit-learn; not saving")
+        return 1
+    MODEL_OUT.write_text(json.dumps(bundle, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"saved model to {MODEL_OUT} ({MODEL_OUT.stat().st_size // 1024} KB)")
     return 0
 
 
